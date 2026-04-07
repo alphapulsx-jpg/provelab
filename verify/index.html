@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProveLab — Verify a Proof</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@noble/ed25519@2.1.0/lib/esm/index.min.js" type="module"></script>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --bg: #060610; --surface: #0d0d1a; --border: #1a1a2e; --neon: #4ECDC4; --gold: #D4A55A; --white: #F7F6F3; --red: #FF6B6B; --green: #4ECDC4; }
+
+  body {
+    background: var(--bg); color: var(--white);
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh; padding: 40px 20px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+
+  .container { max-width: 720px; width: 100%; }
+
+  h1 { font-size: 1.8rem; font-weight: 900; margin-bottom: 8px; }
+  h1 .shield { color: var(--neon); }
+  .subtitle { color: rgba(247,246,243,0.4); font-size: 0.85rem; margin-bottom: 32px; }
+
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 12px;
+    padding: 48px 24px; text-align: center;
+    cursor: pointer; transition: all 0.3s;
+    background: var(--surface);
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--neon);
+    background: rgba(78,205,196,0.03);
+  }
+  .drop-zone p { color: rgba(247,246,243,0.5); font-size: 0.9rem; }
+  .drop-zone .cta { color: var(--neon); font-weight: 700; }
+  .drop-zone input { display: none; }
+
+  .or-paste { text-align: center; color: rgba(247,246,243,0.3); margin: 16px 0; font-size: 0.8rem; }
+
+  textarea {
+    width: 100%; min-height: 120px; padding: 16px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--white); font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem; resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--neon); }
+
+  .verify-btn {
+    display: block; width: 100%; margin-top: 16px; padding: 14px;
+    background: transparent; border: 2px solid var(--neon); border-radius: 8px;
+    color: var(--white); font-family: 'Inter', sans-serif;
+    font-weight: 700; font-size: 1rem; letter-spacing: 0.05em;
+    cursor: pointer; transition: all 0.3s; text-transform: uppercase;
+  }
+  .verify-btn:hover {
+    background: rgba(78,205,196,0.1);
+    box-shadow: 0 0 20px rgba(78,205,196,0.2);
+  }
+
+  .result { margin-top: 32px; display: none; }
+  .result.show { display: block; }
+
+  .result-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 20px; border-radius: 12px; margin-bottom: 20px;
+  }
+  .result-header.valid { background: rgba(78,205,196,0.08); border: 1px solid rgba(78,205,196,0.2); }
+  .result-header.invalid { background: rgba(255,107,107,0.08); border: 1px solid rgba(255,107,107,0.2); }
+  .result-header .icon { font-size: 2rem; }
+  .result-header .text h2 { font-size: 1.1rem; font-weight: 700; }
+  .result-header.valid .text h2 { color: var(--green); }
+  .result-header.invalid .text h2 { color: var(--red); }
+  .result-header .text p { color: rgba(247,246,243,0.5); font-size: 0.8rem; margin-top: 4px; }
+
+  .proof-details {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .detail-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+  }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-row .label { color: rgba(247,246,243,0.4); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .detail-row .value { color: var(--white); font-size: 0.85rem; font-weight: 600; text-align: right; max-width: 60%; word-break: break-all; }
+
+  .claims-section { margin-top: 20px; }
+  .claims-section h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 12px; color: var(--gold); }
+  .claim-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 20px; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .claim-card .field { color: rgba(247,246,243,0.5); font-size: 0.78rem; }
+  .claim-card .val { color: var(--white); font-weight: 700; font-size: 1rem; }
+
+  .footer {
+    margin-top: 48px; text-align: center;
+    color: rgba(247,246,243,0.2); font-size: 0.7rem;
+  }
+  .footer a { color: rgba(78,205,196,0.4); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span class="shield">🛡️</span> ProveLab Verifier</h1>
+  <p class="subtitle">Independently verify any ProveLab cryptographic proof. No account needed.</p>
+
+  <div class="drop-zone" id="dropZone">
+    <p><span class="cta">Drop a proof file here</span> or click to browse</p>
+    <p style="margin-top:8px; font-size:0.75rem;">.json proof files from ProveLab</p>
+    <input type="file" id="fileInput" accept=".json">
+  </div>
+
+  <div class="or-paste">— or paste proof JSON below —</div>
+
+  <textarea id="jsonInput" placeholder='{"privforge_version":"2.0.0","proof_type":"ed25519_self_signed",...}'></textarea>
+
+  <button class="verify-btn" id="verifyBtn">Verify Proof</button>
+
+  <div class="result" id="result">
+    <div class="result-header" id="resultHeader">
+      <div class="icon" id="resultIcon"></div>
+      <div class="text">
+        <h2 id="resultTitle"></h2>
+        <p id="resultDesc"></p>
+      </div>
+    </div>
+
+    <div class="proof-details" id="proofDetails"></div>
+    <div class="claims-section" id="claimsSection"></div>
+  </div>
+
+  <div class="footer">
+    <p>Verification runs entirely in your browser. No data is sent anywhere.</p>
+    <p style="margin-top:4px;"><a href="https://github.com/alphapulsx-jpg/provelab">github.com/alphapulsx-jpg/provelab</a></p>
+  </div>
+</div>
+
+<script type="module">
+import * as ed from 'https://cdn.jsdelivr.net/npm/@noble/ed25519@2.1.0/lib/esm/index.js';
+
+// Hex helpers
+const hexToBytes = hex => new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+const te = new TextEncoder();
+
+// Drop zone
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const jsonInput = document.getElementById('jsonInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) readFile(file);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) readFile(e.target.files[0]); });
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    jsonInput.value = e.target.result;
+    verifyProof();
+  };
+  reader.readAsText(file);
+}
+
+// Verify
+document.getElementById('verifyBtn').addEventListener('click', verifyProof);
+
+async function verifyProof() {
+  const result = document.getElementById('result');
+  const header = document.getElementById('resultHeader');
+  const icon = document.getElementById('resultIcon');
+  const title = document.getElementById('resultTitle');
+  const desc = document.getElementById('resultDesc');
+  const details = document.getElementById('proofDetails');
+  const claims = document.getElementById('claimsSection');
+
+  let proof;
+  try {
+    proof = JSON.parse(jsonInput.value.trim());
+  } catch (e) {
+    showError('Invalid JSON', 'Could not parse the proof data. Make sure you pasted valid JSON.');
+    return;
+  }
+
+  if (!proof.privforge_version && !proof.attestation) {
+    showError('Not a ProveLab Proof', 'This JSON doesn\'t appear to be a ProveLab proof file.');
+    return;
+  }
+
+  // Verify ed25519 signature
+  let verified = false;
+  let verifyError = null;
+
+  try {
+    const att = proof.attestation;
+    if (!att || !att.signature || !att.notary_pubkey) {
+      verifyError = 'No signature found in proof';
+    } else {
+      const pubkeyBytes = hexToBytes(att.notary_pubkey);
+      const sigBytes = hexToBytes(att.signature);
+
+      // Get signed data
+      let signedData = att.signed_data;
+      if (!signedData) {
+        const plugin = proof.generator?.plugin || '';
+        const url = proof.source?.url || '';
+        const ts = proof.source?.notarized_at || '';
+        const claimsJson = JSON.stringify(proof.claims || []);
+        signedData = `privforge:v1:${plugin}:${url}:${ts}:${claimsJson}`;
+      }
+
+      const msgBytes = te.encode(signedData);
+      verified = await ed.verifyAsync(sigBytes, msgBytes, pubkeyBytes);
+    }
+  } catch (e) {
+    verifyError = e.message;
+  }
+
+  // Display result
+  result.classList.add('show');
+
+  if (verified) {
+    header.className = 'result-header valid';
+    icon.textContent = '✅';
+    title.textContent = 'Signature Valid';
+    desc.textContent = 'This proof\'s cryptographic signature has been independently verified.';
+  } else {
+    header.className = 'result-header invalid';
+    icon.textContent = '❌';
+    title.textContent = verifyError || 'Signature Invalid';
+    desc.textContent = verifyError
+      ? 'Could not verify this proof.'
+      : 'WARNING: This proof\'s signature does not match. The data may have been tampered with.';
+  }
+
+  // Proof details
+  const src = proof.source || {};
+  const gen = proof.generator || {};
+  const rows = [
+    ['Domain', src.domain || '—'],
+    ['URL', src.url || '—'],
+    ['Timestamp', src.notarized_at ? new Date(src.notarized_at).toLocaleString() : '—'],
+    ['Protocol', src.protocol || '—'],
+    ['Proof Type', proof.proof_type || proof.trust_level || '—'],
+    ['Trust Level', proof.trust_level || '—'],
+    ['Version', proof.privforge_version || '—'],
+    ['Generator', `${gen.tool || '—'} v${gen.version || '?'}`],
+  ];
+
+  details.innerHTML = rows.map(([label, value]) =>
+    `<div class="detail-row"><span class="label">${label}</span><span class="value">${escHtml(String(value))}</span></div>`
+  ).join('');
+
+  // Claims
+  const proofClaims = proof.claims || [];
+  if (proofClaims.length > 0) {
+    claims.innerHTML = `<h3>Verified Claims (${proofClaims.length})</h3>` +
+      proofClaims.map(c =>
+        `<div class="claim-card"><span class="field">${escHtml(c.field)}</span><span class="val">${escHtml(String(c.value))}</span></div>`
+      ).join('');
+  } else {
+    claims.innerHTML = '';
+  }
+}
+
+function showError(t, d) {
+  const result = document.getElementById('result');
+  const header = document.getElementById('resultHeader');
+  result.classList.add('show');
+  header.className = 'result-header invalid';
+  document.getElementById('resultIcon').textContent = '⚠️';
+  document.getElementById('resultTitle').textContent = t;
+  document.getElementById('resultDesc').textContent = d;
+  document.getElementById('proofDetails').innerHTML = '';
+  document.getElementById('claimsSection').innerHTML = '';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
